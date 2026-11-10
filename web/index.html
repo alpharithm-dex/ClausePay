@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ClausePay turns approved contractor terms into traceable sandbox payouts.">
+  <title>ClausePay — Contract payments</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <aside class="rail">
+    <a class="brand" href="/"><span class="brand-icon" aria-hidden="true">C<span>↗</span></span>ClausePay</a>
+    <div class="rail-label">WORKSPACE</div>
+    <nav aria-label="Workflow">
+      <a class="active" href="#agreement"><b>01</b> Agreement</a>
+      <a href="#review"><b>02</b> Review terms</a>
+      <a href="#payouts"><b>03</b> Payouts</a>
+    </nav>
+    <div class="rail-footer"><span class="status-dot"></span><div><strong>Sandbox workspace</strong><small>Contract operations</small></div></div>
+  </aside>
+  <main>
+    <div class="top"><span>Workspace <b>/</b> Contract payments</span><span class="env" id="environment">◆ Demo mode</span></div>
+    <div class="page">
+      <header class="hero">
+        <div><span class="eyebrow"><i></i> CONTRACT OPERATIONS</span>
+          <h1>From clause<br>to payout<span>.</span></h1>
+          <p>Turn an agreement into a payment plan you can review, approve and trace back to the source.</p>
+        </div>
+        <div class="flow" aria-hidden="true"><span class="flow-line"></span><span class="flow-node n1">01</span><span class="flow-node n2">02</span><span class="flow-node n3">03</span><span class="flow-caption">READ <b>→</b> REVIEW <b>→</b> PAY</span></div>
+      </header>
+
+      <div id="metrics" class="metrics" aria-label="Payment summary"></div>
+      <div class="workspace">
+        <section class="card" id="agreement">
+          <header class="card-head"><div><span class="step">01 / SOURCE</span><h2>Agreement</h2></div><button type="button" id="sample" class="secondary">Load sample</button></header>
+          <label for="contract" class="label">Agreement text</label>
+          <textarea id="contract" rows="12" maxlength="12000" spellcheck="false" placeholder="Paste an agreement with a reference, named recipients, USD amounts and due dates."></textarea>
+          <div class="input-footer">
+            <label class="file" for="upload">↑ Upload .txt</label><input id="upload" type="file" accept=".txt,text/plain">
+            <button type="button" id="analyze" class="primary">Analyze agreement <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="hint" id="analysis-mode"></p>
+        </section>
+
+        <section class="card" id="review">
+          <header class="card-head"><div><span class="step">02 / EVIDENCE</span><h2>Review payment terms</h2></div><span id="source"></span></header>
+          <div id="obligations"></div>
+        </section>
+      </div>
+      <section class="card settlement" id="payouts">
+        <header class="card-head"><div><span class="step">03 / EXECUTION</span><h2>Payout timeline</h2><p class="hint">Each obligation has its own status and payment reference.</p></div></header>
+        <div class="mode-panel">
+          <label for="mode">Payment mode</label>
+          <select id="mode"><option value="demo">Simulated walkthrough</option><option value="sandbox" disabled>PayPal Sandbox</option></select>
+          <label id="scenario-wrap" for="scenario">Scenario</label>
+          <select id="scenario"><option value="failure">Benefit fails once</option><option value="success">Both payouts succeed</option></select>
+        </div>
+        <div id="timeline"></div>
+        <div id="actions"></div>
+      </section>
+      <p id="notice" role="status" aria-live="polite"></p>
+      <footer>ClausePay <span>·</span> Contract-to-payout prototype <span>·</span> Test funds only</footer>
+    </div>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
