@@ -75,6 +75,8 @@ function tokens(text) {
   return [...new Set(text.toLowerCase().match(/[a-z]{3,}/g) ?? [])];
 }
 
+const genericTerms=new Set(['the','for','will','shall','from','with','and','paid','pay','studio','company','client','agency']);
+
 const models = Object.entries(trainingExamples).map(([kind, examples]) => {
   const words = examples.flatMap(tokens);
   const counts = new Map();
@@ -87,14 +89,19 @@ function classify(line) {
   const scores = models.map(model=>({kind:model.kind,
     score:known.reduce((sum,word)=>sum+Math.log((1+(model.counts.get(word) ?? 0))/7),0)
   })).sort((a,b)=>b.score-a.score);
-  return scores[0].score-scores[1].score >= Math.log(1.5) ? scores[0].kind : 'other';
+  const margin=scores[0].score-scores[1].score;
+  const winner=models.find(model=>model.kind===scores[0].kind);
+  const alternative=models.find(model=>model.kind===scores[1].kind);
+  const signals=known.map(word=>({word,weight:Math.log((1+(winner.counts.get(word)??0))/(1+(alternative.counts.get(word)??0)))}))
+    .filter(term=>term.weight>0&&!genericTerms.has(term.word)).sort((a,b)=>b.weight-a.weight).slice(0,4).map(term=>term.word);
+  return {kind:margin>=Math.log(1.5)?scores[0].kind:'other',margin:Number(margin.toFixed(2)),signals};
 }
 
 function classifyAgreement(text) {
   const lines = text.split('\n').map(line=>line.trim()).filter(Boolean);
   const reference = text.match(/\bCP-[\w-]+\b|(?:Agreement ID|Reference)\s*:\s*([\w-]+)/i);
   const plan = {name:lines.find(line=>line.includes('×'))?.split('·').at(-1).trim() || 'Contractor agreement',
-    reference:reference?.[1] || reference?.[0] || '', obligations:[], concerns:[]};
+    reference:reference?.[1] || reference?.[0] || '', obligations:[], concerns:[], decisions:{}};
   let section = '';
   const duplicates = new Set();
   for (const line of lines) {
@@ -103,7 +110,8 @@ function classifyAgreement(text) {
     const amount = line.match(/(?:will|shall) pay ([^\d]+?)\s+USD\s+(\d[\d,]*(?:\.\d{1,2})?)(?!\d|[.,]\d)/i);
     if (!amount) continue;
     const date = line.match(/\bdue (\d{4}-\d{2}-\d{2})/i);
-    const kind = classify(line);
+    const decision = classify(line);
+    const {kind} = decision;
     if (kind === 'other' || !date || /\b(if|subject to|conditional|deducted from)\b/i.test(line) ||
         (kind === 'benefit' && !/\bin addition to\b/i.test(line))) {
       plan.concerns.push('Review the payment language for '+amount[1]+'.');
@@ -113,6 +121,7 @@ function classifyAgreement(text) {
     if (plan.obligations.some(row=>row.kind === kind)) {
       duplicates.add(kind);
       plan.obligations = plan.obligations.filter(row=>row.kind !== kind);
+      delete plan.decisions[kind];
       plan.concerns.push('Multiple '+kind+' obligations require separate review.');
       continue;
     }
@@ -126,6 +135,7 @@ function classifyAgreement(text) {
     }
     plan.obligations.push({kind,payee:amount[1].trim(),cents:Math.round(Number(amount[2].replaceAll(',',''))*100),
       due:changes[0]?.due || date[1],evidence:line,amendment:changes[0]?.evidence || ''});
+    plan.decisions[kind]=decision;
   }
   return {...validatePlan(plan,text),source:'Built-in ML classifier'};
 }
@@ -180,7 +190,8 @@ async function paypal(token, path, body) {
 function payoutState(data) {
   const item = data.items?.[0];
   return {id:data.batch_header.payout_batch_id, itemId:item?.payout_item_id ?? null,
-    status:item?.transaction_status ?? 'PENDING', mode:'sandbox'};
+    status:item?.transaction_status ?? 'PENDING', mode:'sandbox',
+    processedAt:item?.time_processed ?? null};
 }
 
 async function senderId(reference, kind, attempt) {
@@ -196,11 +207,16 @@ async function batch(token,id) {
 }
 
 async function submitPayout(body, env) {
-  const {reference, kind, cents, previousId, attempt} = body;
+  const {reference, kind, cents, previousId, attempt, due, runDate} = body;
   if (typeof reference !== 'string' || !reference.trim() || reference.length > 120 ||
       !['worker','benefit'].includes(kind) || !Number.isInteger(cents) || cents < 1 || cents > 1000000 ||
       !Number.isInteger(attempt) || attempt < 1 || attempt > 5 || body.confirmed !== true) {
     throw new RequestError('Review and approve a valid payout first.');
+  }
+  const isDate=value=>typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
+  if(!isDate(due)||!isDate(runDate)||due>runDate) {
+    throw new RequestError('This obligation is not due on the selected sandbox run date.',409);
   }
   const receiver = kind === 'worker' ? env.PAYPAL_WORKER_EMAIL : env.PAYPAL_BENEFIT_EMAIL;
   const value = (cents/100).toFixed(2);

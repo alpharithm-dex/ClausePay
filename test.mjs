@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {handleApi,validatePlan} from './worker.js';
 import {agreement,sample} from './web/sample.js';
+import {laneState,releaseable} from './web/workflow.js';
 
 const request = (path,body) => new Request('http://localhost/api/'+path,{
   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -15,6 +16,8 @@ test('extracts separate fixed obligations and applies the amendment',async()=>{
   assert.equal(response.status,200,JSON.stringify(data));
   assert.deepEqual(data.obligations,sample.obligations);
   assert.equal(data.source,'Built-in ML classifier');
+  assert.ok(data.decisions.worker.signals.includes('design'));
+  assert.ok(data.decisions.benefit.margin>0);
 });
 
 test('uses new input, and flags conditional payment',async()=>{
@@ -44,7 +47,8 @@ test('payout retry uses the same sandbox attempt after an ambiguous failure',asy
     if(calls.length===1) throw new Error('Transport failure');
     return Response.json({batch_header:{payout_batch_id:'CP123'}},{status:201});
   });
-  const body={reference:'CP-EXAMPLE',kind:'worker',cents:100000,attempt:1,confirmed:true};
+  const body={reference:'CP-EXAMPLE',kind:'worker',cents:100000,attempt:1,confirmed:true,
+    due:'2026-11-12',runDate:'2026-11-12'};
   assert.equal((await handleApi(request('payout',body),env)).status,502);
   const result=await handleApi(request('payout',body),env);
   assert.equal(result.status,200);
@@ -60,7 +64,25 @@ test('a successful prior payout cannot be retried as a new attempt',async t=>{
     return Response.json({batch_header:{payout_batch_id:'PAID1'},items:[{transaction_status:'SUCCESS'}]});
   });
   const result=await handleApi(request('payout',{reference:'CP-TEST',kind:'benefit',cents:10000,
-    attempt:2,previousId:'PAID1',confirmed:true}),env);
+    attempt:2,previousId:'PAID1',confirmed:true,due:'2026-11-16',runDate:'2026-11-16'}),env);
   assert.equal(result.status,409);
   assert.equal(writes,0);
+});
+
+test('the amended benefit stays scheduled until its new date and worker pay is independent',()=>{
+  const rows=sample.obligations;
+  const results={worker:{id:'WORKER1',status:'SUCCESS'}};
+  assert.deepEqual(releaseable(rows,{},'2026-11-12').map(row=>row.kind),['worker']);
+  assert.equal(laneState(rows[1],null,true,'2026-11-12'),'Scheduled');
+  assert.equal(laneState(rows[0],results.worker,true,'2026-11-16'),'Cleared');
+  assert.deepEqual(releaseable(rows,results,'2026-11-16').map(row=>row.kind),['benefit']);
+  assert.deepEqual(releaseable(rows,{...results,benefit:{id:'BENEFIT1',status:'FAILED'}},'2026-11-16','benefit').map(row=>row.kind),['benefit']);
+});
+
+test('the payout endpoint refuses future obligations before contacting PayPal',async t=>{
+  const fetchSpy=t.mock.method(globalThis,'fetch',async()=>{throw new Error('PayPal should not be called');});
+  const response=await handleApi(request('payout',{reference:'CP-DEMO',kind:'benefit',cents:10000,
+    attempt:1,confirmed:true,due:'2026-11-16',runDate:'2026-11-12'}),env);
+  assert.equal(response.status,409);
+  assert.equal(fetchSpy.mock.callCount(),0);
 });

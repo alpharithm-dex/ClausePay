@@ -1,12 +1,14 @@
 import {mkdir,readFile,writeFile,copyFile} from 'node:fs/promises';
+import {assetPaths,readAsset} from './assets.mjs';
 
 const read = path => readFile(new URL('../'+path,import.meta.url),'utf8');
 const worker = await read('worker.js');
 const assets = {};
-for (const [path,file,type] of [
-  ['/','index.html','text/html'], ['/style.css','style.css','text/css'],
-  ['/app.js','app.js','text/javascript'], ['/sample.js','sample.js','text/javascript']
-]) assets[path] = {body:await read('web/'+file),type};
+for (const path of assetPaths) {
+  const asset=await readAsset(path);
+  if(!asset) throw new Error('Missing asset '+path+'. Run npm ci first.');
+  assets[path]={body:asset.body.toString('utf8'),type:asset.type};
+}
 const entry = worker+'\nconst assets = '+JSON.stringify(assets)+`;
 export default { fetch(request,env) {
   const path = new URL(request.url).pathname;

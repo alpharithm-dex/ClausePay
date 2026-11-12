@@ -1,8 +1,7 @@
 import {createServer} from 'node:http';
-import {readFile} from 'node:fs/promises';
+import {readAsset} from './assets.mjs';
 import {handleApi} from '../worker.js';
 
-const mime = {'/':'text/html','/style.css':'text/css','/app.js':'text/javascript','/sample.js':'text/javascript'};
 const port = Number(process.env.PORT || 4173);
 createServer(async (req,res) => {
   try {
@@ -16,11 +15,10 @@ createServer(async (req,res) => {
       const options = {method:req.method,headers:req.headers};
       if (!['GET','HEAD'].includes(req.method)) {options.body=req; options.duplex='half';}
       response = await handleApi(new Request(origin+req.url,options),process.env);
-    } else if (req.method === 'GET' && Object.hasOwn(mime,path)) {
-      const file = path === '/' ? 'index.html' : path.slice(1);
-      response = new Response(await readFile(new URL('../web/'+file,import.meta.url)),{
-        headers:{'Content-Type':mime[path]+'; charset=utf-8'}
-      });
+    } else if (req.method === 'GET') {
+      const asset=await readAsset(path);
+      response=asset?new Response(asset.body,{headers:{'Content-Type':asset.type+'; charset=utf-8',
+        'X-Content-Type-Options':'nosniff'}}):new Response('Not found',{status:404});
     } else {
       response = new Response('Not found',{status:404});
     }
